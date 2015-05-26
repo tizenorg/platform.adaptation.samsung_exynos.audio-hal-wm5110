@@ -266,34 +266,26 @@ static audio_return_t __load_volume_value_table_from_ini (audio_mgr_t *am)
 
 audio_return_t _audio_volume_init (audio_mgr_t *am)
 {
-    int i, j;
-    char *str = NULL;
+    int i;
+    int val = 0;
     audio_return_t audio_ret = AUDIO_RET_OK;
     int init_value[AUDIO_VOLUME_TYPE_MAX] = { 9, 11, 7, 11, 7, 4, 4, 7, 4, 0 };
 
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
     for (i = 0; i < AUDIO_VOLUME_TYPE_MAX; i++) {
-        for (j = 0; j < AUDIO_VOLUME_DEVICE_MAX; j++) {
-            am->volume.volume_level[j][i] = init_value[i];
-        }
+        am->volume.volume_level[i] = init_value[i];
     }
 
     for (i = 0; i < AUDIO_VOLUME_TYPE_MAX; i++) {
         /* Get volume value string from VCONF */
-        if((str = vconf_get_str(g_volume_vconf[i])) == NULL) {
-            AUDIO_LOG_ERROR("vconf_get_str(%s) failed", g_volume_vconf[i]);
+        if(vconf_get_int(g_volume_vconf[i], &val) < 0) {
+            AUDIO_LOG_ERROR("vconf_get_int(%s) failed", g_volume_vconf[i]);
             continue;
         }
 
-        AUDIO_LOG_INFO("read vconf. %s = %s", g_volume_vconf[i], str);
-
-        for (j = 0; j < AUDIO_VOLUME_DEVICE_MAX; j++) {
-            am->volume.volume_level[j][i] = atoi(str);
-        }
-
-       if (str)
-           free(str);
+        AUDIO_LOG_INFO("read vconf. %s = %d", g_volume_vconf[i], val);
+        am->volume.volume_level[i] = val;
     }
 
     if (!(am->volume.volume_value_table = malloc(AUDIO_VOLUME_DEVICE_MAX * sizeof(audio_volume_value_table_t)))) {
@@ -345,7 +337,7 @@ audio_return_t audio_get_volume_level (void *userdata, audio_volume_info_t *info
 
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    *level = am->volume.volume_level[AUDIO_VOLUME_DEVICE_DEFAULT][__get_volume_idx_by_string_type(info->type)];
+    *level = am->volume.volume_level[__get_volume_idx_by_string_type(info->type)];
 
     AUDIO_LOG_INFO("get [%s] volume_level: %d, direction(%d)", info->type, *level, info->direction);
 
@@ -382,7 +374,7 @@ audio_return_t audio_set_volume_level (void *userdata, audio_volume_info_t *info
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
     /* Update volume level */
-    am->volume.volume_level[AUDIO_VOLUME_DEVICE_DEFAULT][__get_volume_idx_by_string_type(info->type)] = level;
+    am->volume.volume_level[__get_volume_idx_by_string_type(info->type)] = level;
     AUDIO_LOG_INFO("set [%s] volume_level: %d, direction(%d)", info->type, level, info->direction);
 
     /* set mixer related to H/W volume if needed */

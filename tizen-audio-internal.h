@@ -174,7 +174,7 @@ enum {
 };
 
 typedef struct audio_volume_mgr {
-    uint32_t volume_level[AUDIO_VOLUME_DEVICE_MAX][AUDIO_VOLUME_TYPE_MAX];
+    uint32_t volume_level[AUDIO_VOLUME_TYPE_MAX];
     audio_volume_value_table_t *volume_value_table;
 } audio_volume_mgr_t;
 
