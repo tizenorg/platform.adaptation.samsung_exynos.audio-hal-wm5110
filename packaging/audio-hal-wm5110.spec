@@ -47,5 +47,5 @@ cp LICENSE.Apache-2.0 %{buildroot}/usr/share/license/%{name}
 %manifest audio-hal-wm5110.manifest
 %defattr(-,root,root,-)
 /etc/smack/accesses.d/audio_hal_sys_file_access.efl
-/usr/lib/libtizen-audio.so
+%{_libdir}/libtizen-audio.so
 /usr/share/license/%{name}
