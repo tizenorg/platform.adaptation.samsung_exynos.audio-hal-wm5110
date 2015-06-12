@@ -33,8 +33,8 @@ make %{?jobs:-j%jobs}
 rm -rf %{buildroot}
 mkdir -p %{buildroot}/etc/smack/accesses.d
 cp -arf audio_hal_sys_file_access.efl %{buildroot}/etc/smack/accesses.d
-mkdir -p %{buildroot}/usr/share/license
-cp LICENSE.Apache-2.0 %{buildroot}/usr/share/license/%{name}
+mkdir -p %{buildroot}%{_datadir}/license
+cp LICENSE.Apache-2.0 %{buildroot}%{_datadir}/license/%{name}
 %make_install
 
 %post
@@ -47,5 +47,5 @@ cp LICENSE.Apache-2.0 %{buildroot}/usr/share/license/%{name}
 %manifest audio-hal-wm5110.manifest
 %defattr(-,root,root,-)
 /etc/smack/accesses.d/audio_hal_sys_file_access.efl
-/usr/lib/libtizen-audio.so
-/usr/share/license/%{name}
+%{_libdir}/libtizen-audio.so
+%{_datadir}/license/%{name}
