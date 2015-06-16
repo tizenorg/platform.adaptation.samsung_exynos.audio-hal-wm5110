@@ -412,6 +412,277 @@ exit:
     return audio_ret;
 }
 
+audio_return_t _audio_ucm_set_devices (audio_mgr_t *am, const char *verb, const char *devices[])
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    int is_verb_changed = 0, is_dev_changed = 0;
+    const char *old_verb = NULL, **old_dev_list = NULL;
+    int old_dev_count = 0, dev_count = 0;
+    const char **dis_dev_list = NULL, **ena_dev_list = NULL;
+    int dis_dev_count = 0, ena_dev_count = 0;
+    int i = 0, j = 0;
+    char dump_str[512];
+
+    if (!am->ucm.uc_mgr || !verb)
+        return AUDIO_ERR_PARAMETER;
+
+    snd_use_case_get(am->ucm.uc_mgr, "_verb", &old_verb);
+    old_dev_count = snd_use_case_get_list(am->ucm.uc_mgr, "_enadevs", &old_dev_list);
+    __dump_use_case(old_verb, old_dev_list, old_dev_count, NULL, 0, &dump_str[0]);
+    AUDIO_LOG_INFO(">>> UCM current %s", dump_str);
+
+    if (devices) {
+        for (dev_count = 0; devices[dev_count]; dev_count++);
+    }
+
+    __dump_use_case(verb, devices, dev_count, NULL, 0, &dump_str[0]);
+    AUDIO_LOG_INFO("> UCM requested %s", dump_str);
+
+    if (old_verb && streq(verb, old_verb)) {
+        AUDIO_LOG_DEBUG("current verb and new verb is same. No need to change verb, disable devices explicitely");
+
+        if (old_dev_count > 0) {
+            dis_dev_list = (const char **)malloc(sizeof(const char *) * old_dev_count);
+            for (i = 0; i < old_dev_count; i++) {
+                dis_dev_list[i] = NULL;
+            }
+        }
+        if (dev_count > 0) {
+            ena_dev_list = (const char **)malloc(sizeof(const char *) * dev_count);
+            for (i = 0; i < dev_count; i++) {
+                ena_dev_list[i] = NULL;
+            }
+        }
+
+        /* update disable devices list which are not present in new device list */
+        for (i = 0; i < old_dev_count; i++) {
+            int need_disable_dev = 1;
+
+            for (j = 0; j < dev_count; j++) {
+                if (streq(old_dev_list[i], devices[j])) {
+                    need_disable_dev = 0;
+                    break;
+                }
+            }
+            if (need_disable_dev) {
+                if (is_dev_changed == 0)
+                    is_dev_changed = 1;
+                dis_dev_list[dis_dev_count++] = old_dev_list[i];
+            }
+        }
+
+        /* update enable devices list which are not present in old device list */
+        for (i = 0; i < dev_count; i++) {
+            int need_enable_dev = 1;
+
+            for (j = 0; j < old_dev_count; j++) {
+                if (streq(devices[i], old_dev_list[j])) {
+                    need_enable_dev = 0;
+                    break;
+                }
+            }
+            if (need_enable_dev) {
+                if (is_dev_changed == 0)
+                    is_dev_changed = 1;
+                ena_dev_list[ena_dev_count++] = devices[i];
+            }
+        }
+
+        /* disable devices */
+        for (i = 0; i < dis_dev_count; i++) {
+            AUDIO_LOG_INFO("Disable device : %s", dis_dev_list[i]);
+            if (snd_use_case_set(am->ucm.uc_mgr, "_disdev", dis_dev_list[i]) < 0)
+                AUDIO_LOG_ERROR("disable %s device failed", dis_dev_list[i]);
+        }
+
+        /* enable devices */
+        for (i = 0; i < ena_dev_count; i++) {
+            AUDIO_LOG_INFO("Enable device : %s", ena_dev_list[i]);
+            if (snd_use_case_set(am->ucm.uc_mgr, "_enadev", ena_dev_list[i]) < 0)
+                AUDIO_LOG_ERROR("enable %s device failed", ena_dev_list[i]);
+        }
+
+    } else {
+        is_verb_changed = 1;
+
+        AUDIO_LOG_DEBUG("Setting new verb: %s", verb);
+        /* set new verb */
+        if (snd_use_case_set(am->ucm.uc_mgr, "_verb", verb) < 0) {
+            AUDIO_LOG_ERROR("Setting verb %s failed", verb);
+            audio_ret = AUDIO_ERR_UNDEFINED;
+            goto exit;
+        }
+        /* enable devices */
+        for (i = 0; i < dev_count; i++) {
+            AUDIO_LOG_DEBUG("Enable device : %s", devices[i]);
+            if(snd_use_case_set(am->ucm.uc_mgr, "_enadev", devices[i]) < 0)
+                AUDIO_LOG_ERROR("Enable %s device failed", devices[i]);
+        }
+    }
+
+exit:
+    if (old_verb)
+        free((void *)old_verb);
+    if (old_dev_list)
+        snd_use_case_free_list(old_dev_list, old_dev_count);
+    if (dis_dev_list)
+        free((void *)dis_dev_list);
+    if (ena_dev_list)
+        free((void *)ena_dev_list);
+
+    if (is_verb_changed == 1 || is_dev_changed == 1) {
+        const char *new_verb = NULL, **new_dev_list = NULL;
+        int new_dev_count = 0;
+
+        snd_use_case_get(am->ucm.uc_mgr, "_verb", &new_verb);
+        new_dev_count = snd_use_case_get_list(am->ucm.uc_mgr, "_enadevs", &new_dev_list);
+        __dump_use_case(new_verb, new_dev_list, new_dev_count, NULL, 0, &dump_str[0]);
+        AUDIO_LOG_INFO("<<< UCM changed %s", dump_str);
+
+        if (new_verb)
+            free((void *)new_verb);
+        if (new_dev_list)
+            snd_use_case_free_list(new_dev_list, new_dev_count);
+    }
+
+    return audio_ret;
+
+}
+
+audio_return_t _audio_ucm_set_modifiers (audio_mgr_t *am, const char *verb, const char *modifiers[])
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    int is_verb_changed = 0, is_mod_changed = 0;
+    const char *old_verb = NULL, **old_mod_list = NULL;
+    int old_mod_count = 0, mod_count = 0;
+    const char **dis_mod_list = NULL, **ena_mod_list = NULL;
+    int dis_mod_count = 0, ena_mod_count = 0;
+    int i = 0, j = 0;
+    char dump_str[512];
+
+    if (!am->ucm.uc_mgr || !verb)
+        return AUDIO_ERR_PARAMETER;
+
+    snd_use_case_get(am->ucm.uc_mgr, "_verb", &old_verb);
+    old_mod_count = snd_use_case_get_list(am->ucm.uc_mgr, "_enamods", &old_mod_list);
+    __dump_use_case(old_verb, NULL, 0, old_mod_list, old_mod_count, &dump_str[0]);
+    AUDIO_LOG_INFO(">>> UCM current %s", dump_str);
+
+    if (modifiers) {
+        for (mod_count = 0; modifiers[mod_count]; mod_count++);
+    }
+
+    __dump_use_case(verb, NULL, 0, modifiers, mod_count, &dump_str[0]);
+    AUDIO_LOG_INFO("> UCM requested %s", dump_str);
+
+    if (old_verb && streq(verb, old_verb)) {
+        AUDIO_LOG_DEBUG("current verb and new verb is same. No need to change verb, disable devices explicitely");
+
+        if (old_mod_count > 0) {
+            dis_mod_list = (const char **)malloc(sizeof(const char *) * old_mod_count);
+            for (i = 0; i < old_mod_count; i++) {
+                dis_mod_list[i] = NULL;
+            }
+        }
+        if (mod_count > 0) {
+            ena_mod_list = (const char **)malloc(sizeof(const char *) * mod_count);
+            for (i = 0; i < mod_count; i++) {
+                ena_mod_list[i] = NULL;
+            }
+        }
+
+        /* update disable modifiers list which are not present in new modifier list */
+        for (i = 0; i < old_mod_count; i++) {
+            int need_disable_mod = 1;
+
+            for (j = 0; j < mod_count; j++) {
+                if (streq(old_mod_list[i], modifiers[j])) {
+                    need_disable_mod = 0;
+                    break;
+                }
+            }
+            if (need_disable_mod) {
+                if (is_mod_changed == 0)
+                    is_mod_changed = 1;
+                dis_mod_list[dis_mod_count++] = old_mod_list[i];
+            }
+        }
+
+        /* update enable modifiers list which are not present in old modifier list */
+        for (i = 0; i < mod_count; i++) {
+            int need_enable_mod = 1;
+
+            for (j = 0; j < old_mod_count; j++) {
+                if (streq(modifiers[i], old_mod_list[j])) {
+                    need_enable_mod = 0;
+                    break;
+                }
+            }
+            if (need_enable_mod) {
+                if (is_mod_changed == 0)
+                    is_mod_changed = 1;
+                ena_mod_list[ena_mod_count++] = modifiers[i];
+            }
+        }
+
+        /* disable modifiers */
+        for (i = 0; i < dis_mod_count; i++) {
+            AUDIO_LOG_INFO("Disable modifier : %s", dis_mod_list[i]);
+            if (snd_use_case_set(am->ucm.uc_mgr, "_dismod", dis_mod_list[i]) < 0)
+                AUDIO_LOG_ERROR("disable %s modifier failed", dis_mod_list[i]);
+        }
+
+        /* enable modifiers */
+        for (i = 0; i < ena_mod_count; i++) {
+            AUDIO_LOG_INFO("Enable modifier : %s", ena_mod_list[i]);
+            if (snd_use_case_set(am->ucm.uc_mgr, "_enamod", ena_mod_list[i]) < 0)
+                AUDIO_LOG_ERROR("enable %s modifier failed", ena_mod_list[i]);
+        }
+    } else {
+        is_verb_changed = 1;
+
+        AUDIO_LOG_DEBUG("Setting new verb: %s", verb);
+        /* set new verb */
+        if (snd_use_case_set(am->ucm.uc_mgr, "_verb", verb) < 0) {
+            AUDIO_LOG_ERROR("Setting verb %s failed", verb);
+            audio_ret = AUDIO_ERR_UNDEFINED;
+            goto exit;
+        }
+        /* enable modifiers */
+        for (i = 0; i < mod_count; i++) {
+            AUDIO_LOG_DEBUG("Enable modifier : %s", modifiers[i]);
+            if(snd_use_case_set(am->ucm.uc_mgr, "_enamod", modifiers[i]) < 0)
+                AUDIO_LOG_ERROR("Enable %s modifier failed", modifiers[i]);
+        }
+    }
+
+exit:
+    if (old_verb)
+        free((void *)old_verb);
+    if (old_mod_list)
+        snd_use_case_free_list(old_mod_list, old_mod_count);
+    if (dis_mod_list)
+        free((void *)dis_mod_list);
+    if (ena_mod_list)
+        free((void *)ena_mod_list);
+
+    if (is_verb_changed == 1 || is_mod_changed == 1) {
+        const char *new_verb = NULL, **new_mod_list = NULL;
+        int new_mod_count = 0;
+
+        snd_use_case_get(am->ucm.uc_mgr, "_verb", &new_verb);
+        new_mod_count = snd_use_case_get_list(am->ucm.uc_mgr, "_enamods", &new_mod_list);
+        __dump_use_case(new_verb, NULL, 0, new_mod_list, new_mod_count, &dump_str[0]);
+        AUDIO_LOG_INFO("<<< UCM changed %s", dump_str);
+
+        if (new_verb)
+            free((void *)new_verb);
+        if (new_mod_list)
+            snd_use_case_free_list(new_mod_list, new_mod_count);
+    }
+
+    return audio_ret;
+}
 
 audio_return_t _audio_ucm_get_verb (audio_mgr_t *am, const char **value)
 {
