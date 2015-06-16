@@ -66,6 +66,39 @@
     } \
 } while (0)
 
+/* Devices : Normal  */
+enum audio_device_type {
+    AUDIO_DEVICE_NONE                 = 0,
+
+    /* output devices */
+    AUDIO_DEVICE_OUT_SPEAKER          = 0x00000001,
+    AUDIO_DEVICE_OUT_RECEIVER         = 0x00000002,
+    AUDIO_DEVICE_OUT_JACK             = 0x00000004,
+    AUDIO_DEVICE_OUT_BT_SCO           = 0x00000008,
+    AUDIO_DEVICE_OUT_AUX              = 0x00000010,
+    AUDIO_DEVICE_OUT_HDMI             = 0x00000020,
+    AUDIO_DEVICE_OUT_ALL              = (AUDIO_DEVICE_OUT_SPEAKER |
+                                         AUDIO_DEVICE_OUT_RECEIVER |
+                                         AUDIO_DEVICE_OUT_JACK |
+                                         AUDIO_DEVICE_OUT_BT_SCO |
+                                         AUDIO_DEVICE_OUT_AUX |
+                                         AUDIO_DEVICE_OUT_HDMI),
+    /* input devices */
+    AUDIO_DEVICE_IN_MAIN_MIC          = 0x80000001,
+    AUDIO_DEVICE_IN_SUB_MIC           = 0x80000002,
+    AUDIO_DEVICE_IN_JACK              = 0x80000004,
+    AUDIO_DEVICE_IN_BT_SCO            = 0x80000008,
+    AUDIO_DEVICE_IN_ALL               = (AUDIO_DEVICE_IN_MAIN_MIC |
+                                         AUDIO_DEVICE_IN_SUB_MIC |
+                                         AUDIO_DEVICE_IN_JACK |
+                                         AUDIO_DEVICE_IN_BT_SCO),
+};
+
+typedef struct device_type {
+    uint32_t type;
+    const char *name;
+} device_type_t;
+
 /* Verbs */
 #define AUDIO_USE_CASE_VERB_INACTIVE                "Inactive"
 #define AUDIO_USE_CASE_VERB_HIFI                    "HiFi"
@@ -73,34 +106,28 @@
 #define AUDIO_USE_CASE_VERB_LOOPBACK                "Loopback"
 #define AUDIO_USE_CASE_VERB_FMRADIO                 "FM_Radio"
 
-/* Devices : Normal  */
-#define AUDIO_USE_CASE_DEV_SPEAKER                  "Speaker"
-#define AUDIO_USE_CASE_DEV_HANDSET                  "Earpiece"
-#define AUDIO_USE_CASE_DEV_HEADSET                  "Headphones"
-#define AUDIO_USE_CASE_DEV_HEADSET_3POLE            "Headphones"
-#define AUDIO_USE_CASE_DEV_BT_HEADSET               "Bluetooth"
-#define AUDIO_USE_CASE_DEV_LINEOUT                  "Line"
-#define AUDIO_USE_CASE_DEV_FMRADIO                  "FM"
-
-#define AUDIO_USE_CASE_DEV_MAIN_MIC                 "MainMic"
-#define AUDIO_USE_CASE_DEV_SUB_MIC                  "SubMic"
-#define AUDIO_USE_CASE_DEV_HEADSET_MIC              "HeadsetMic"
-#define AUDIO_USE_CASE_DEV_BT_MIC                   "BT Mic"
-
 /* Modifiers */
-#define AUDIO_USE_CASE_MODIFIER_VOICE                    "VoiceSearch"
+#define AUDIO_USE_CASE_MODIFIER_VOICESEARCH              "VoiceSearch"
 #define AUDIO_USE_CASE_MODIFIER_CAMCORDING               "Camcording"
 #define AUDIO_USE_CASE_MODIFIER_RINGTONE                 "Ringtone"
-
+#define AUDIO_USE_CASE_MODIFIER_DUAL_RINGTONE            "DualRingtone"
+#define AUDIO_USE_CASE_MODIFIER_MEDIA                    "Media"
+#define AUDIO_USE_CASE_MODIFIER_DUAL_MEDIA               "DualMedia"
 
 #define streq !strcmp
 #define strneq strcmp
 
 #define ALSA_DEFAULT_CARD       "wm5110"
 #define VOICE_PCM_DEVICE        "hw:0,1"
+#define PLAYBACK_PCM_DEVICE     "hw:0,3"
+#define CAPTURE_PCM_DEVICE      "hw:0,0"
+
+#define PERIODSZ_PLAYBACK 2048
+#define BUFFERSZ_PLAYBACK 4096
 
 #define MAX_DEVICES             5
 #define MAX_MODIFIERS           5
+#define MAX_NAME_LEN           32
 
 /* type definitions */
 typedef signed char int8_t;
@@ -112,25 +139,22 @@ typedef struct {
     uint8_t channels;
 } audio_pcm_sample_spec_t;
 
-/* Session */
-typedef struct audio_session_mgr {
-    audio_session_t session;
-    audio_subsession_t subsession;
-    uint32_t is_recording;
-    uint32_t is_radio_on;
-    uint32_t is_call_session;
-} audio_session_mgr_t;
-
 /* Device */
+typedef enum audio_route_mode{
+    VERB_NORMAL,
+    VERB_CALL,
+    VERB_VOIP
+} audio_route_mode_t;
 
 typedef struct audio_device_mgr {
-    audio_device_in_t active_in;
-    audio_device_out_t active_out;
+    uint32_t active_in;
+    uint32_t active_out;
     uint32_t route_flag;
     snd_pcm_t *pcm_in;
     snd_pcm_t *pcm_out;
     pthread_mutex_t pcm_lock;
     uint32_t pcm_count;
+    audio_route_mode_t mode;
 } audio_device_mgr_t;
 
 
@@ -138,30 +162,21 @@ typedef struct audio_device_mgr {
 
 #define AUDIO_VOLUME_LEVEL_MAX 16
 
-typedef struct audio_volume_gain_table {
+typedef struct audio_volume_value_table {
     double volume[AUDIO_VOLUME_TYPE_MAX][AUDIO_VOLUME_LEVEL_MAX];
     uint32_t volume_level_max[AUDIO_VOLUME_LEVEL_MAX];
     double gain[AUDIO_GAIN_TYPE_MAX];
-} audio_volume_gain_table_t;
+} audio_volume_value_table_t;
 
 enum {
-    AUDIO_VOLUME_DEVICE_SPEAKER,
-    AUDIO_VOLUME_DEVICE_RECEIVER,
-    AUDIO_VOLUME_DEVICE_EARJACK,
-    AUDIO_VOLUME_DEVICE_BT_SCO,
-    AUDIO_VOLUME_DEVICE_BT_A2DP,
-    AUDIO_VOLUME_DEVICE_DOCK,
-    AUDIO_VOLUME_DEVICE_HDMI,
-    AUDIO_VOLUME_DEVICE_MIRRORING,
-    AUDIO_VOLUME_DEVICE_USB,
-    AUDIO_VOLUME_DEVICE_MULTIMEDIA_DOCK,
+    AUDIO_VOLUME_DEVICE_DEFAULT,
     AUDIO_VOLUME_DEVICE_MAX,
 };
 
-typedef struct audio_stream_mgr {
-    uint32_t volume_level[AUDIO_VOLUME_TYPE_MAX];
-    audio_volume_gain_table_t *volume_gain_table;
-} audio_stream_mgr_t;
+typedef struct audio_volume_mgr {
+    uint32_t volume_level[AUDIO_VOLUME_DEVICE_MAX][AUDIO_VOLUME_TYPE_MAX];
+    audio_volume_value_table_t *volume_value_table;
+} audio_volume_mgr_t;
 
 typedef struct audio_ucm_mgr {
     snd_use_case_mgr_t* uc_mgr;
@@ -182,9 +197,8 @@ typedef struct audio_mixer_mgr {
 typedef struct audio_mgr {
     void *platform_data;
     audio_cb_interface_t cb_intf;
-    audio_session_mgr_t session;
     audio_device_mgr_t device;
-    audio_stream_mgr_t stream;
+    audio_volume_mgr_t volume;
     audio_ucm_mgr_t ucm;
     audio_mixer_mgr_t mixer;
 } audio_mgr_t;
@@ -200,28 +214,24 @@ typedef struct samplerate_ctrl {
     unsigned int samplerate; /* change samplerate.*/
 } set_samplerate_t;
 
-audio_return_t _audio_stream_init (audio_mgr_t *am);
-audio_return_t _audio_stream_deinit (audio_mgr_t *am);
+audio_return_t _audio_volume_init (audio_mgr_t *am);
+audio_return_t _audio_volume_deinit (audio_mgr_t *am);
 
 audio_return_t _audio_device_init (audio_mgr_t *am);
 audio_return_t _audio_device_deinit (audio_mgr_t * am);
 audio_return_t _set_route_voicecall (audio_mgr_t *am, uint32_t device_in, uint32_t device_out, uint32_t route_flag);
-audio_return_t _reset_route (audio_mgr_t *am, int need_inactive);
-
-audio_return_t _audio_session_init (audio_mgr_t *am);
-audio_return_t _audio_session_deinit (audio_mgr_t *am);
-
 audio_return_t _audio_ucm_init (audio_mgr_t *am);
 audio_return_t _audio_ucm_deinit (audio_mgr_t *am);
 void _audio_ucm_get_device_name (audio_mgr_t *am, const char *use_case, audio_direction_t direction, const char **value);
 #define _audio_ucm_update_use_case _audio_ucm_set_use_case
 audio_return_t _audio_ucm_set_use_case (audio_mgr_t *am, const char *verb, const char *devices[], const char *modifiers[]);
+audio_return_t _audio_ucm_set_devices (audio_mgr_t *am, const char *verb, const char *devices[]);
+audio_return_t _audio_ucm_set_modifiers (audio_mgr_t *am, const char *verb, const char *modifiers[]);
 int _audio_ucm_fill_device_info_list (audio_mgr_t *am, audio_device_info_t *device_info_list, const char *verb);
 int _voice_pcm_open(audio_mgr_t *am);
-int _voice_pcm_close(audio_mgr_t *am, int reset);
+int _voice_pcm_close(audio_mgr_t *am, uint32_t direction);
 audio_return_t _audio_ucm_get_verb (audio_mgr_t *am, const char **value);
 audio_return_t _audio_ucm_reset_use_case (audio_mgr_t *am);
-
 audio_return_t _audio_util_init (audio_mgr_t *am);
 audio_return_t _audio_util_deinit (audio_mgr_t *am);
 audio_return_t _audio_mixer_control_set_param(audio_mgr_t *am, const char* ctl_name, snd_ctl_elem_value_t* value, int size);
@@ -229,7 +239,7 @@ audio_return_t _audio_mixer_control_set_value(audio_mgr_t *am, const char *ctl_n
 audio_return_t _audio_mixer_control_set_value_string(audio_mgr_t *am, const char* ctl_name, const char* value);
 audio_return_t _audio_mixer_control_get_value(audio_mgr_t *am, const char *ctl_name, int *val);
 audio_return_t _audio_mixer_control_get_element(audio_mgr_t *am, const char *ctl_name, snd_hctl_elem_t **elem);
-
-audio_return_t _audio_pcm_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, uint8_t period_event, uint32_t start_threshold, uint32_t rate);
+audio_return_t _audio_pcm_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, uint8_t period_event);
 audio_return_t _audio_pcm_set_hw_params(snd_pcm_t *pcm, audio_pcm_sample_spec_t *sample_spec, uint8_t *use_mmap, snd_pcm_uframes_t *period_size, snd_pcm_uframes_t *buffer_size);
+uint32_t _convert_format(audio_sample_format_t format);
 #endif

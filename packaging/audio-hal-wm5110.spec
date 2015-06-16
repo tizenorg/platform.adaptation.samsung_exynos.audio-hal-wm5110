@@ -1,6 +1,6 @@
 Name:       audio-hal-wm5110
 Summary:    TIZEN Audio HAL for WM5110
-Version:    0.2.1
+Version:    0.2.2
 Release:    0
 VCS:        adaptation/samsung_exynos/audio-hal-wm5110#a568942051241d60e37c6738466a2a5058f260c0
 Group:      System/Libraries
@@ -31,8 +31,6 @@ make %{?jobs:-j%jobs}
 
 %install
 rm -rf %{buildroot}
-mkdir -p %{buildroot}/etc/smack/accesses.d
-cp -arf audio_hal_sys_file_access.efl %{buildroot}/etc/smack/accesses.d
 mkdir -p %{buildroot}%{_datadir}/license
 cp LICENSE.Apache-2.0 %{buildroot}%{_datadir}/license/%{name}
 %make_install
@@ -44,8 +42,6 @@ cp LICENSE.Apache-2.0 %{buildroot}%{_datadir}/license/%{name}
 /sbin/ldconfig
 
 %files
-%manifest audio-hal-wm5110.manifest
 %defattr(-,root,root,-)
-/etc/smack/accesses.d/audio_hal_sys_file_access.efl
 %{_libdir}/libtizen-audio.so
 %{_datadir}/license/%{name}
