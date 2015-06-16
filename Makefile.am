@@ -1,9 +1,8 @@
 lib_LTLIBRARIES = libtizen-audio.la
 
 libtizen_audio_la_SOURCES = tizen-audio.c \
-		tizen-audio-session.c \
 		tizen-audio-device.c \
-		tizen-audio-stream.c \
+		tizen-audio-volume.c \
 		tizen-audio-ucm.c \
 		tizen-audio-util.c
 libtizen_audio_la_LDFLAGS = $(AM_LDFLAGS) -disable-static -avoid-version

@@ -28,15 +28,124 @@
 
 #include "tizen-audio-internal.h"
 
+static device_type_t outDeviceTypes[] = {
+    { AUDIO_DEVICE_OUT_SPEAKER, "Speaker" },
+    { AUDIO_DEVICE_OUT_RECEIVER, "Earpiece" },
+    { AUDIO_DEVICE_OUT_JACK, "Headphones" },
+    { AUDIO_DEVICE_OUT_BT_SCO, "Bluetooth" },
+    { AUDIO_DEVICE_OUT_AUX, "Line" },
+    { AUDIO_DEVICE_OUT_HDMI, "HDMI" },
+    { 0, 0 },
+};
+
+static device_type_t inDeviceTypes[] = {
+    { AUDIO_DEVICE_IN_MAIN_MIC, "MainMic" },
+    { AUDIO_DEVICE_IN_SUB_MIC, "SubMic" },
+    { AUDIO_DEVICE_IN_JACK, "HeadsetMic" },
+    { AUDIO_DEVICE_IN_BT_SCO, "BT Mic" },
+    { 0, 0 },
+};
+
+static uint32_t convert_device_string_to_enum(const char* device_str, uint32_t direction)
+{
+    uint32_t device = 0;
+
+    if (!strncmp(device_str,"builtin-speaker", MAX_NAME_LEN)) {
+        device = AUDIO_DEVICE_OUT_SPEAKER;
+    } else if (!strncmp(device_str,"builtin-receiver", MAX_NAME_LEN)) {
+        device = AUDIO_DEVICE_OUT_RECEIVER;
+    } else if ((!strncmp(device_str,"audio-jack", MAX_NAME_LEN)) && (direction == AUDIO_DIRECTION_OUT)) {
+        device = AUDIO_DEVICE_OUT_JACK;
+    } else if ((!strncmp(device_str,"bt", MAX_NAME_LEN)) && (direction == AUDIO_DIRECTION_OUT)) {
+        device = AUDIO_DEVICE_OUT_BT_SCO;
+    } else if (!strncmp(device_str,"aux", MAX_NAME_LEN)) {
+        device = AUDIO_DEVICE_OUT_AUX;
+    } else if (!strncmp(device_str,"hdmi", MAX_NAME_LEN)) {
+        device = AUDIO_DEVICE_OUT_HDMI;
+    } else if ((!strncmp(device_str,"builtin-mic", MAX_NAME_LEN))) {
+        device = AUDIO_DEVICE_IN_MAIN_MIC;
+    /* To Do : SUB_MIC */
+    } else if ((!strncmp(device_str,"audio-jack", MAX_NAME_LEN)) && (direction == AUDIO_DIRECTION_IN)) {
+        device = AUDIO_DEVICE_IN_JACK;
+    } else if ((!strncmp(device_str,"bt", MAX_NAME_LEN)) && (direction == AUDIO_DIRECTION_IN)) {
+        device = AUDIO_DEVICE_IN_BT_SCO;
+    } else {
+        device = AUDIO_DEVICE_NONE;
+    }
+    AUDIO_LOG_INFO("device type(%s), enum(0x%x)", device_str, device);
+    return device;
+}
+
+static audio_return_t set_devices(audio_mgr_t *am, const char *verb, device_info_t *devices, uint32_t num_of_devices)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    uint32_t new_device = 0;
+    const char *active_devices[MAX_DEVICES] = {NULL,};
+    int i = 0, j = 0, dev_idx = 0;
+
+    if (num_of_devices > MAX_DEVICES) {
+        num_of_devices = MAX_DEVICES;
+        AUDIO_LOG_ERROR("error: num_of_devices");
+        return AUDIO_ERR_PARAMETER;
+    }
+
+    if ((devices[0].direction == AUDIO_DIRECTION_OUT) && am->device.active_in) {
+        /* check the active in devices */
+        for (j = 0; j < inDeviceTypes[j].type; j++) {
+            if (((am->device.active_in & (~0x80000000)) & inDeviceTypes[j].type))
+                active_devices[dev_idx++] = inDeviceTypes[j].name;
+        }
+    } else if ((devices[0].direction == AUDIO_DIRECTION_IN) && am->device.active_out) {
+        /* check the active out devices */
+        for (j = 0; j < outDeviceTypes[j].type; j++) {
+            if (am->device.active_out & outDeviceTypes[j].type)
+                active_devices[dev_idx++] = outDeviceTypes[j].name;
+        }
+    }
+
+    for (i = 0; i < num_of_devices; i++) {
+        new_device = convert_device_string_to_enum(devices[i].type, devices[i].direction);
+        if (new_device & 0x80000000) {
+            for (j = 0; j < inDeviceTypes[j].type; j++) {
+                if (new_device == inDeviceTypes[j].type) {
+                    active_devices[dev_idx++] = inDeviceTypes[j].name;
+                    am->device.active_in |= new_device;
+                }
+            }
+        } else {
+            for (j = 0; j < outDeviceTypes[j].type; j++) {
+                if (new_device == outDeviceTypes[j].type) {
+                    active_devices[dev_idx++] = outDeviceTypes[j].name;
+                    am->device.active_out |= new_device;
+                }
+            }
+        }
+    }
+
+    if (active_devices[0] == NULL) {
+        AUDIO_LOG_ERROR("Failed to set device: active device is NULL");
+        return AUDIO_ERR_PARAMETER;
+    }
+
+    audio_ret = _audio_ucm_set_devices(am, verb, active_devices);
+    if (audio_ret) {
+        AUDIO_LOG_ERROR("Failed to set device: error = %d", audio_ret);
+        return audio_ret;
+    }
+    return audio_ret;
+
+}
+
 audio_return_t _audio_device_init (audio_mgr_t *am)
 {
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    am->device.active_in = AUDIO_DEVICE_IN_NONE;
-    am->device.active_out = AUDIO_DEVICE_OUT_NONE;
+    am->device.active_in = 0x0;
+    am->device.active_out = 0x0;
     am->device.route_flag = AUDIO_ROUTE_FLAG_NONE;
     am->device.pcm_in = NULL;
     am->device.pcm_out = NULL;
+    am->device.mode = VERB_NORMAL;
     pthread_mutex_init(&am->device.pcm_lock, NULL);
     am->device.pcm_count = 0;
 
@@ -50,278 +159,179 @@ audio_return_t _audio_device_deinit (audio_mgr_t *am)
     return AUDIO_RET_OK;
 }
 
-static void __load_n_open_device_with_params (audio_mgr_t *am, audio_device_info_t *device_info, int load_only)
-{
-    audio_device_param_info_t params[AUDIO_DEVICE_PARAM_MAX];
-    int dev_param_count = 0;
-
-    AUDIO_RETURN_IF_FAIL(am);
-    AUDIO_RETURN_IF_FAIL(device_info);
-    AUDIO_RETURN_IF_FAIL(am->cb_intf.load_device);
-    AUDIO_RETURN_IF_FAIL(am->cb_intf.open_device);
-
-    memset(&params[0], 0, sizeof(audio_device_param_info_t) * AUDIO_DEVICE_PARAM_MAX);
-
-    if (device_info->api == AUDIO_DEVICE_API_ALSA) {
-        device_info->name = malloc(strlen(device_info->alsa.card_name) + 6); /* 6 = "hw: ,idx */
-        sprintf(device_info->name, "hw:%s,%d", device_info->alsa.card_name, device_info->alsa.device_idx);
-        if (device_info->direction == AUDIO_DIRECTION_OUT) {
-            /* ALSA playback */
-            switch (device_info->alsa.device_idx) {
-                /* default device */
-                case 0:
-                case 3:
-                    device_info->is_default_device = 1;
-                    params[dev_param_count].param = AUDIO_DEVICE_PARAM_SUSPEND_TIMEOUT;
-                    params[dev_param_count++].u32_v = 1;
-                    params[dev_param_count].param = AUDIO_DEVICE_PARAM_TSCHED_BUF_SIZE;
-                    params[dev_param_count++].u32_v = 35280;
-                    AUDIO_LOG_INFO("HiFi Device");
-                    break;
-                /* HDMI device */
-                case 1:
-                    /* VOICE PCM. */
-                    break;
-                default:
-                    AUDIO_LOG_INFO("Unknown Playback Device");
-                    break;
-            }
-        } else if (device_info->direction == AUDIO_DIRECTION_IN) {
-            /* ALSA capture */
-            switch (device_info->alsa.device_idx) {
-                /* default device */
-                case 0:
-                    device_info->is_default_device = 1;
-                    /* use mmap */
-                    params[dev_param_count].param = AUDIO_DEVICE_PARAM_USE_MMAP;
-                    params[dev_param_count++].u32_v = 1;
-                    params[dev_param_count].param = AUDIO_DEVICE_PARAM_SAMPLERATE;
-                    params[dev_param_count++].u32_v = 48000;
-                    params[dev_param_count].param = AUDIO_DEVICE_PARAM_ALTERNATE_RATE;
-                    params[dev_param_count++].u32_v = 48000;
-                    break;
-                default:
-                    AUDIO_LOG_INFO("Unknown Capture Device");
-                    break;
-            }
-        }
-
-        AUDIO_LOG_INFO("open alsa %s device hw:%s,%d", (device_info->direction == AUDIO_DIRECTION_IN) ? "capture" : "playback",
-        device_info->alsa.card_name, device_info->alsa.device_idx);
-    }
-
-    if (load_only) {
-        am->cb_intf.load_device(am->platform_data, device_info, &params[0]);
-    } else {
-        am->cb_intf.open_device(am->platform_data, device_info, &params[0]);
-    }
-}
-
-static audio_return_t __set_route_ap_playback_capture (audio_mgr_t *am, uint32_t device_in, uint32_t device_out, uint32_t route_flag)
+static audio_return_t _do_route_ap_playback_capture (audio_mgr_t *am, audio_route_info_t *route_info)
 {
     audio_return_t audio_ret = AUDIO_RET_OK;
-    int dev_idx = 0;
+    device_info_t *devices = route_info->device_infos;
+    int mod_idx = 0;
     const char *verb = NULL;
-    const char *devices[MAX_DEVICES] = {NULL,};
     const char *modifiers[MAX_MODIFIERS] = {NULL,};
 
     verb = AUDIO_USE_CASE_VERB_HIFI;
+    AUDIO_LOG_INFO("do_route_ap_playback_capture++ ");
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    if (route_flag & AUDIO_ROUTE_FLAG_MUTE_POLICY) {
-        devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET;
-    } else if (route_flag & AUDIO_ROUTE_FLAG_DUAL_OUT) {
-        devices[dev_idx++] = AUDIO_USE_CASE_DEV_SPEAKER;
-        devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET;
-        if (device_out == AUDIO_DEVICE_OUT_MIRRORING) {
-            AUDIO_LOG_INFO("Skip WFD enable during DUAL path");
-        }
-    } else {
-        switch (device_out) {
-            case AUDIO_DEVICE_OUT_SPEAKER:
-                 devices[dev_idx++] = AUDIO_USE_CASE_DEV_SPEAKER;
-                 break;
-            case AUDIO_DEVICE_OUT_RECEIVER:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_HANDSET;
-                break;
-            case AUDIO_DEVICE_OUT_WIRED_ACCESSORY:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET;
-                break;
-            /* even BT SCO is opened by call app, we cannot use BT SCO on HiFi verb */
-            case AUDIO_DEVICE_OUT_BT_SCO:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_SPEAKER;
-                break;
-            default:
-                break;
-        }
-    }
-
-    if (am->session.is_radio_on == 0 || am->session.is_recording == 1) {
-        switch (device_in) {
-            case AUDIO_DEVICE_IN_MIC:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_MAIN_MIC;
-                break;
-            case AUDIO_DEVICE_IN_WIRED_ACCESSORY:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET_MIC;
-                break;
-            /* even BT SCO is opened by call app, we cannot use BT SCO on HiFi verb */
-            case AUDIO_DEVICE_IN_BT_SCO:
-                devices[dev_idx++] = AUDIO_USE_CASE_DEV_MAIN_MIC;
-                break;
-            default:
-                break;
-        }
-    }
-
-    /* TODO. Handle voice recognition when seperate devices are available */
-    audio_ret = _audio_ucm_update_use_case(am, verb, devices, modifiers);
-    if (AUDIO_IS_ERROR(audio_ret)) {
+    audio_ret = set_devices(am, verb, devices, route_info->num_of_devices);
+    if (audio_ret) {
+        AUDIO_LOG_ERROR("Failed to set devices: error = 0x%x", audio_ret);
         return audio_ret;
     }
-    return AUDIO_RET_OK;
-}
+    am->device.mode = VERB_NORMAL;
 
-audio_return_t _set_route_voicecall (audio_mgr_t *am, uint32_t device_in, uint32_t device_out, uint32_t route_flag)
-{
-    audio_return_t audio_ret = AUDIO_RET_OK;
-    int dev_idx = 0;
-    const char *verb = NULL;
-    const char *devices[MAX_DEVICES] = {NULL,};
-
-    verb = AUDIO_USE_CASE_VERB_VOICECALL;
-
-    switch (device_out) {
-        case AUDIO_DEVICE_OUT_SPEAKER:
-            /* FIXME: WB handling is needed */
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_SPEAKER;
-            break;
-        case AUDIO_DEVICE_OUT_RECEIVER:
-            /* FIXME: WB handling is needed */
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HANDSET;
-            break;
-        case AUDIO_DEVICE_OUT_WIRED_ACCESSORY:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET;
-            break;
-        case AUDIO_DEVICE_OUT_BT_SCO:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_BT_HEADSET;
-            break;
-        default:
-            break;
+    /* FIXME. Set modifiers */
+    if (!strncmp("voice_recognition", route_info->role, MAX_NAME_LEN)) {
+        modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_VOICESEARCH;
+    } else if ((!strncmp("alarm", route_info->role, MAX_NAME_LEN))||(!strncmp("notifiication", route_info->role, MAX_NAME_LEN))) {
+        if (am->device.active_out &= AUDIO_DEVICE_OUT_JACK)
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_DUAL_MEDIA;
+        else
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_MEDIA;
+    } else if (!strncmp("ringtone", route_info->role, MAX_NAME_LEN)) {
+        if (am->device.active_out &= AUDIO_DEVICE_OUT_JACK)
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_DUAL_RINGTONE;
+        else
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_RINGTONE;
+    } else {
+        if (am->device.active_in)
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_CAMCORDING;
+        else
+            modifiers[mod_idx++] = AUDIO_USE_CASE_MODIFIER_MEDIA;
     }
-
-    switch (device_in) {
-        case AUDIO_DEVICE_IN_MIC:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_MAIN_MIC;
-            break;
-        case AUDIO_DEVICE_IN_WIRED_ACCESSORY:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET_MIC;
-            break;
-        default:
-            break;
-    }
-
-    /* FIXME. Get network info and configure rate in pcm device */
-    audio_ret = _audio_ucm_update_use_case(am, verb, devices, NULL);
+    audio_ret = _audio_ucm_set_modifiers (am, verb, modifiers);
 
     return audio_ret;
 }
-
-static audio_return_t __set_route_voip (audio_mgr_t *am, uint32_t device_in, uint32_t device_out, uint32_t route_flag)
+audio_return_t _do_route_voicecall (audio_mgr_t *am, device_info_t *devices, int32_t num_of_devices)
 {
-    int dev_idx = 0;
+    audio_return_t audio_ret = AUDIO_RET_OK;
     const char *verb = NULL;
-    const char *devices[MAX_DEVICES] = {NULL,};
+    verb = AUDIO_USE_CASE_VERB_VOICECALL;
 
-    verb = AUDIO_USE_CASE_VERB_HIFI; /* Modify later to use VIRTUALAUDIO to enable echo cancellation */
+    AUDIO_LOG_INFO("do_route_voicecall++");
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    switch (device_out) {
-        case AUDIO_DEVICE_OUT_SPEAKER:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_SPEAKER;
-            break;
-        case AUDIO_DEVICE_OUT_RECEIVER:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HANDSET;
-            break;
-        case AUDIO_DEVICE_OUT_WIRED_ACCESSORY:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET;
-            break;
-        case AUDIO_DEVICE_OUT_BT_SCO:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_BT_HEADSET;
-            break;
-        default:
-            break;
+    audio_ret = set_devices(am, verb, devices, num_of_devices);
+    if (audio_ret) {
+        AUDIO_LOG_ERROR("Failed to set devices: error = 0x%x", audio_ret);
+        return audio_ret;
     }
+    /* FIXME. Get network info and configure rate in pcm device */
+    am->device.mode = VERB_CALL;
+    if (am->device.active_out && am->device.active_in)
+        _voice_pcm_open(am);
 
-    switch (device_in) {
-        case AUDIO_DEVICE_IN_MIC:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_MAIN_MIC;
-            break;
-        case AUDIO_DEVICE_IN_WIRED_ACCESSORY:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_HEADSET_MIC;
-            break;
-        case AUDIO_DEVICE_IN_BT_SCO:
-            devices[dev_idx++] = AUDIO_USE_CASE_DEV_BT_MIC;
-            break;
-        default:
-            break;
-    }
-
-    return _audio_ucm_update_use_case(am, verb, devices, NULL);
+    return audio_ret;
 }
-
-audio_return_t _reset_route (audio_mgr_t *am, int need_inactive)
+audio_return_t _do_route_voip (audio_mgr_t *am, device_info_t *devices, int32_t num_of_devices)
 {
-    const char *devices[MAX_DEVICES] = {NULL,};
-    const char *modifiers[MAX_MODIFIERS] = {NULL,};
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    const char *verb = NULL;
+    const char *active_devices[MAX_DEVICES] = {NULL,};
+    verb = AUDIO_USE_CASE_VERB_HIFI;
 
-    if(need_inactive) {
-        _audio_ucm_update_use_case(am, AUDIO_USE_CASE_VERB_INACTIVE, devices, modifiers);
+    AUDIO_LOG_INFO("do_route_voip++");
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
+    audio_ret = set_devices(am, verb, devices, num_of_devices);
+    if (audio_ret) {
+        AUDIO_LOG_ERROR("Failed to set devices: error = 0x%x", audio_ret);
+        return audio_ret;
     }
-    _audio_ucm_update_use_case(am, AUDIO_USE_CASE_VERB_HIFI, devices, modifiers);
-    __set_route_ap_playback_capture(am, am->device.active_in, am->device.active_out, 0);
+    /* FIXME. If necessary, set VERB_VOIP */
+    am->device.mode = VERB_NORMAL;
+    if (active_devices == NULL) {
+        AUDIO_LOG_ERROR("Failed to set device: active device is NULL");
+        return AUDIO_ERR_PARAMETER;
+    }
 
-    return AUDIO_RET_OK;
+    /* TO DO: Set modifiers */
+    return audio_ret;
 }
 
-audio_return_t audio_set_route (void *userdata, uint32_t session, uint32_t subsession, uint32_t device_in, uint32_t device_out, uint32_t route_flag)
+audio_return_t _do_route_reset (audio_mgr_t *am, uint32_t direction)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    const char *verb = NULL;
+
+    verb = AUDIO_USE_CASE_VERB_INACTIVE;
+
+    AUDIO_LOG_INFO("do_route_reset++, direction(%p)", direction);
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
+
+    if (direction == AUDIO_DIRECTION_OUT) {
+        am->device.active_out &= 0x0;
+    } else {
+        am->device.active_in &= 0x0;
+    }
+    if (am->device.mode == VERB_CALL) {
+        _voice_pcm_close(am, direction);
+    }
+    /* TO DO: Set Inactive */
+    return audio_ret;
+}
+
+audio_return_t audio_do_route (void *userdata, audio_route_info_t *info)
 {
     audio_return_t audio_ret = AUDIO_RET_OK;
     audio_mgr_t *am = (audio_mgr_t *)userdata;
-    int i, dev_info_count = 0;
-    audio_device_info_t device_info_list[AUDIO_DEVICE_INFO_LIST_MAX];
-
-    am->device.active_in = device_in;
-    am->device.active_out = device_out;
-    am->device.route_flag = route_flag;
+    device_info_t *devices = info->device_infos;
 
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    AUDIO_LOG_INFO("session:%d,%d in:%d out:%d flag:0x%x", session, subsession, device_in, device_out, route_flag);
+    AUDIO_LOG_INFO("role:%s", info->role);
 
-	if ((session == AUDIO_SESSION_VOICECALL) && (subsession == AUDIO_SUBSESSION_VOICE)) {
-        audio_ret = _set_route_voicecall(am, device_in, device_out, route_flag);
+    if (!strncmp("call-voice", info->role, MAX_NAME_LEN)) {
+        audio_ret = _do_route_voicecall(am, devices, info->num_of_devices);
         if (AUDIO_IS_ERROR(audio_ret)) {
             AUDIO_LOG_WARN("set voicecall route return 0x%x", audio_ret);
         }
-    } else if ((session == AUDIO_SESSION_VOIP) && (subsession == AUDIO_SUBSESSION_VOICE)) {
-        audio_ret = __set_route_voip(am, device_in, device_out, route_flag);
+    } else if (!strncmp("voip", info->role, MAX_NAME_LEN)) {
+        audio_ret = _do_route_voip(am, devices, info->num_of_devices);
         if (AUDIO_IS_ERROR(audio_ret)) {
             AUDIO_LOG_WARN("set voip route return 0x%x", audio_ret);
         }
+    } else if (!strncmp("reset", info->role, MAX_NAME_LEN)) {
+        audio_ret = _do_route_reset(am, devices->direction);
+        if (AUDIO_IS_ERROR(audio_ret)) {
+            AUDIO_LOG_WARN("set reset return 0x%x", audio_ret);
+        }
     } else {
-        audio_ret = __set_route_ap_playback_capture(am, device_in, device_out, route_flag);
+        /* need to prepare for "alarm","notification","emergency","voice-information","voice-recognition","ringtone" */
+        audio_ret = _do_route_ap_playback_capture(am, info);
+
         if (AUDIO_IS_ERROR(audio_ret)) {
             AUDIO_LOG_WARN("set playback route return 0x%x", audio_ret);
         }
     }
+    return audio_ret;
+}
 
-    if (!AUDIO_IS_ERROR(audio_ret)) {
-        memset((void *)&device_info_list[0], 0, sizeof(audio_device_info_t) * AUDIO_DEVICE_INFO_LIST_MAX);
-        /* fill device params & open device */
-        dev_info_count = _audio_ucm_fill_device_info_list(am, &device_info_list[0], NULL);
-        for (i = 0; i < dev_info_count; i++) {
-            __load_n_open_device_with_params(am, &device_info_list[i], 0);
-            }
-        }
-    return AUDIO_RET_OK;
+audio_return_t audio_update_stream_connection_info (void *userdata, audio_stream_info_t *info, uint32_t is_connected)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    int i = 0;
+    audio_mgr_t *am = (audio_mgr_t *)userdata;
+
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
+
+    AUDIO_LOG_INFO("role:%s, direction:%u, idx:%u, is_connected:%d", info->role, info->direction, info->idx, is_connected);
+
+    return audio_ret;
+}
+
+audio_return_t audio_update_route_option (void *userdata, audio_route_option_t *option)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    int i = 0;
+    audio_mgr_t *am = (audio_mgr_t *)userdata;
+
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
+
+    AUDIO_LOG_INFO("role:%s, num_of_options:%u", option->role, option->num_of_options);
+    for (i = 0; i < option->num_of_options; i++) {
+        AUDIO_LOG_INFO("option[%d]: %s", i, option->options[i]);
+    }
+
+    return audio_ret;
 }
 
 audio_return_t audio_alsa_pcm_open (void *userdata, void **pcm_handle, char *device_name, uint32_t direction, int mode)
@@ -452,23 +462,117 @@ int _voice_pcm_open (audio_mgr_t *am)
     return ret;
 }
 
-int _voice_pcm_close (audio_mgr_t *am,int reset)
+int _voice_pcm_close (audio_mgr_t *am, uint32_t direction)
 {
     AUDIO_LOG_INFO("close voice pcm handles");
 
-    if (am->device.pcm_out) {
+    if (am->device.pcm_out && (direction == AUDIO_DIRECTION_OUT)) {
         audio_alsa_pcm_close((void *)am, am->device.pcm_out);
         am->device.pcm_out = NULL;
-        AUDIO_LOG_INFO("pcm playback device close");
-    }
-
-    if (am->device.pcm_in) {
+        AUDIO_LOG_INFO("voice pcm_out handle close success");
+    } else if (am->device.pcm_in && (direction == AUDIO_DIRECTION_IN)) {
         audio_alsa_pcm_close((void *)am, am->device.pcm_in);
         am->device.pcm_in = NULL;
-        AUDIO_LOG_INFO("pcm capture device close");
+        AUDIO_LOG_INFO("voice pcm_in handle close success");
     }
-    if (reset)
-        _reset_route(am, 1);
 
+    return 0;
+}
+
+audio_return_t audio_pcm_open (void *userdata, void **pcm_handle, void *sample_spec, uint32_t direction)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    char *device_name = NULL;
+    audio_mgr_t *am = (audio_mgr_t *)userdata;
+    audio_pcm_sample_spec_t *ss = (audio_pcm_sample_spec_t *)sample_spec;
+    int err, mode;
+    uint8_t use_mmap=0;
+    snd_pcm_uframes_t period_size = PERIODSZ_PLAYBACK;
+    snd_pcm_uframes_t buffer_size = BUFFERSZ_PLAYBACK;
+    snd_pcm_uframes_t avail_min = 1024;
+    ss->format = _convert_format((audio_sample_format_t)ss->format);
+    mode =  SND_PCM_NONBLOCK | SND_PCM_NO_AUTO_RESAMPLE | SND_PCM_NO_AUTO_CHANNELS | SND_PCM_NO_AUTO_FORMAT;
+
+    AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
+    if(direction == AUDIO_DIRECTION_OUT)
+        device_name = PLAYBACK_PCM_DEVICE;
+    else if (direction == AUDIO_DIRECTION_IN)
+        device_name = CAPTURE_PCM_DEVICE;
+    else {
+        AUDIO_LOG_ERROR("Error get device_name, direction = %d", direction);
+        return AUDIO_ERR_RESOURCE;
+    }
+
+    if ((err = snd_pcm_open((snd_pcm_t **)pcm_handle, device_name, (direction == AUDIO_DIRECTION_OUT) ? SND_PCM_STREAM_PLAYBACK : SND_PCM_STREAM_CAPTURE, mode)) < 0) {
+        AUDIO_LOG_ERROR("Error opening PCM device %s: %s", device_name, snd_strerror(err));
+        pthread_mutex_unlock(&am->device.pcm_lock);
+        return AUDIO_ERR_RESOURCE;
+    }
+    am->device.pcm_count++;
+    AUDIO_LOG_INFO("Opening PCM handle 0x%x, PCM device %s", *pcm_handle, device_name);
+
+    if ((err = _audio_pcm_set_hw_params(*pcm_handle, ss, &use_mmap, &period_size, &buffer_size)) != AUDIO_RET_OK) {
+        AUDIO_LOG_ERROR("Failed to set pcm hw parameters: %s", snd_strerror(err));
+        return AUDIO_ERR_RESOURCE;
+    }
+    AUDIO_LOG_INFO("setting avail_min=%lu", (unsigned long) avail_min);
+    if ((err = _audio_pcm_set_sw_params(*pcm_handle, avail_min, 0)) < 0) {
+        AUDIO_LOG_ERROR("Failed to set pcm sw parameters: %s", snd_strerror(err));
+        return AUDIO_ERR_RESOURCE;
+    }
+    return audio_ret;
+}
+
+audio_return_t audio_pcm_close (void *userdata, void *pcm_handle)
+{
+    audio_return_t audio_ret = AUDIO_RET_OK;
+    audio_mgr_t *am = (audio_mgr_t *)userdata;
+    int err;
+
+    AUDIO_LOG_INFO("Try to close PCM handle 0x%x", pcm_handle);
+    if ((err = snd_pcm_close(pcm_handle)) < 0) {
+        AUDIO_LOG_ERROR("Error closing PCM handle : %s", snd_strerror(err));
+        pthread_mutex_unlock(&am->device.pcm_lock);
+        return AUDIO_ERR_RESOURCE;
+    }
+    am->device.pcm_count--;
+    AUDIO_LOG_INFO("PCM handle close success (count:%d)", am->device.pcm_count);
+
+    return audio_ret;
+}
+
+audio_return_t audio_pcm_avail(void *pcm_handle)
+{
+    snd_pcm_sframes_t n;
+    snd_pcm_sframes_t ret;
+
+    AUDIO_RETURN_VAL_IF_FAIL(pcm_handle, AUDIO_ERR_PARAMETER);
+
+    while(1) {
+        n = snd_pcm_avail(pcm_handle);
+
+        if (n <= 0) {
+            ret == snd_pcm_wait(pcm_handle, 10);
+            if(ret == 0){
+                AUDIO_LOG_DEBUG("snd_pcm_wait = %d\n", ret);
+                continue;
+            }
+            else
+                break;
+        }
+        break;
+    }
+    return 0;
+}
+audio_return_t audio_pcm_write(void *pcm_handle, const void *buffer, uint32_t frames)
+{
+    snd_pcm_sframes_t frames_written;
+
+    AUDIO_RETURN_VAL_IF_FAIL(pcm_handle, AUDIO_ERR_PARAMETER);
+
+    frames_written = snd_pcm_writei(pcm_handle, buffer, (snd_pcm_uframes_t) frames);
+    if (frames_written < 0) {
+        AUDIO_LOG_ERROR("Failed to pcm write: try_recover!!!!");
+    }
     return 0;
 }
