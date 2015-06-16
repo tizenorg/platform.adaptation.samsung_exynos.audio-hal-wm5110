@@ -144,7 +144,7 @@ audio_return_t _audio_mixer_control_get_value(audio_mgr_t *am, const char *ctl_n
 #endif
 
     pthread_mutex_unlock(&(am->mixer.mutex));
-    return AUDIO_RET_USE_HW_CONTROL;
+    return AUDIO_RET_OK;
 
 close:
     AUDIO_LOG_ERROR ("Error\n");
@@ -222,13 +222,13 @@ audio_return_t _audio_mixer_control_set_value(audio_mgr_t *am, const char *ctl_n
     AUDIO_LOG_INFO("set mixer(%s) = %d success", ctl_name, val);
 
     pthread_mutex_unlock(&(am->mixer.mutex));
-    return AUDIO_RET_USE_HW_CONTROL;
+    return AUDIO_RET_OK;
 
 close:
     AUDIO_LOG_ERROR("Error");
     snd_ctl_close(handle);
     pthread_mutex_unlock(&(am->mixer.mutex));
-    return -1;
+    return AUDIO_ERR_UNDEFINED;
 }
 
 audio_return_t _audio_mixer_control_set_value_string(audio_mgr_t *am, const char* ctl_name, const char* value)
@@ -244,6 +244,27 @@ audio_return_t _audio_mixer_control_get_element(audio_mgr_t *am, const char *ctl
     return AUDIO_RET_OK;
 }
 
+/* Convert pcm format from pulse to alsa */
+static const uint32_t g_format_convert_table[] = {
+    [AUDIO_SAMPLE_U8]        = SND_PCM_FORMAT_U8,
+    [AUDIO_SAMPLE_ALAW]      = SND_PCM_FORMAT_A_LAW,
+    [AUDIO_SAMPLE_ULAW]      = SND_PCM_FORMAT_MU_LAW,
+    [AUDIO_SAMPLE_S16LE]     = SND_PCM_FORMAT_S16_LE,
+    [AUDIO_SAMPLE_S16BE]     = SND_PCM_FORMAT_S16_BE,
+    [AUDIO_SAMPLE_FLOAT32LE] = SND_PCM_FORMAT_FLOAT_LE,
+    [AUDIO_SAMPLE_FLOAT32BE] = SND_PCM_FORMAT_FLOAT_BE,
+    [AUDIO_SAMPLE_S32LE]     = SND_PCM_FORMAT_S32_LE,
+    [AUDIO_SAMPLE_S32BE]     = SND_PCM_FORMAT_S32_BE,
+    [AUDIO_SAMPLE_S24LE]     = SND_PCM_FORMAT_S24_3LE,
+    [AUDIO_SAMPLE_S24BE]     = SND_PCM_FORMAT_S24_3BE,
+    [AUDIO_SAMPLE_S24_32LE]  = SND_PCM_FORMAT_S24_LE,
+    [AUDIO_SAMPLE_S24_32BE]  = SND_PCM_FORMAT_S24_BE
+};
+
+uint32_t _convert_format(audio_sample_format_t format)
+{
+    return g_format_convert_table[format];
+}
 
 /* Generic snd pcm interface APIs */
 audio_return_t _audio_pcm_set_hw_params(snd_pcm_t *pcm, audio_pcm_sample_spec_t *sample_spec, uint8_t *use_mmap, snd_pcm_uframes_t *period_size, snd_pcm_uframes_t *buffer_size)
@@ -293,7 +314,7 @@ audio_return_t _audio_pcm_set_hw_params(snd_pcm_t *pcm, audio_pcm_sample_spec_t 
         AUDIO_LOG_DEBUG("snd_pcm_hw_params_set_access() failed: %s", snd_strerror(ret));
         goto error;
     }
-    AUDIO_LOG_ERROR("setting rate - %d", sample_spec->rate);
+    AUDIO_LOG_DEBUG("setting rate - %d", sample_spec->rate);
     err = snd_pcm_hw_params_set_rate(pcm, hwparams, sample_spec->rate, 0);
     if (err < 0) {
         AUDIO_LOG_ERROR("snd_pcm_hw_params_set_rate() : failed! - %s\n", snd_strerror(err));
@@ -350,8 +371,47 @@ error:
     return AUDIO_ERR_RESOURCE;
 }
 
-
-audio_return_t _audio_pcm_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, uint8_t period_event, uint32_t start_threshold, uint32_t rate)
+audio_return_t _audio_pcm_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_min, uint8_t period_event)
 {
-    return AUDIO_ERR_NOT_IMPLEMENTED;
+    snd_pcm_sw_params_t *swparams;
+    snd_pcm_uframes_t boundary;
+    int err;
+
+    snd_pcm_sw_params_alloca(&swparams);
+
+    if ((err = snd_pcm_sw_params_current(pcm, swparams) < 0)) {
+        AUDIO_LOG_WARN("Unable to determine current swparams: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_set_period_event(pcm, swparams, period_event)) < 0) {
+        AUDIO_LOG_WARN("Unable to disable period event: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_set_tstamp_mode(pcm, swparams, SND_PCM_TSTAMP_ENABLE)) < 0) {
+        AUDIO_LOG_WARN("Unable to enable time stamping: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_get_boundary(swparams, &boundary)) < 0) {
+        AUDIO_LOG_WARN("Unable to get boundary: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_set_stop_threshold(pcm, swparams, boundary)) < 0) {
+        AUDIO_LOG_WARN("Unable to set stop threshold: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_set_start_threshold(pcm, swparams, (snd_pcm_uframes_t) -1)) < 0) {
+        AUDIO_LOG_WARN("Unable to set start threshold: %s\n", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params_set_avail_min(pcm, swparams, avail_min)) < 0) {
+        AUDIO_LOG_WARN("snd_pcm_sw_params_set_avail_min() failed: %s", snd_strerror(err));
+        goto error;
+    }
+    if ((err = snd_pcm_sw_params(pcm, swparams)) < 0) {
+        AUDIO_LOG_WARN("Unable to set sw params: %s\n", snd_strerror(err));
+        goto error;
+    }
+    return AUDIO_RET_OK;
+error:
+    return err;
 }
