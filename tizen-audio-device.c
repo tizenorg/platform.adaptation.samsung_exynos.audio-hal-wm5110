@@ -326,10 +326,7 @@ audio_return_t audio_update_route_option (void *userdata, audio_route_option_t *
 
     AUDIO_RETURN_VAL_IF_FAIL(am, AUDIO_ERR_PARAMETER);
 
-    AUDIO_LOG_INFO("role:%s, num_of_options:%u", option->role, option->num_of_options);
-    for (i = 0; i < option->num_of_options; i++) {
-        AUDIO_LOG_INFO("option[%d]: %s", i, option->options[i]);
-    }
+    AUDIO_LOG_INFO("role:%s, name:%s, value:%d", option->role, option->name, option->value);
 
     return audio_ret;
 }
