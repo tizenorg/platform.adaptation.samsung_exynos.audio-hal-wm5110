@@ -135,7 +135,7 @@ static void __dump_tb (audio_mgr_t *am)
     /* Dump volume table */
     AUDIO_LOG_INFO("<<<<< volume table >>>>>");
 
-    const char *table_str = __get_device_string_by_idx(AUDIO_VOLUME_DEVICE_DEFAULT);
+    const char *table_str = "volumes";
 
     AUDIO_LOG_INFO("<< %s >>", table_str);
 
@@ -204,7 +204,7 @@ static audio_return_t __load_volume_value_table_from_ini (audio_mgr_t *am)
 
     const char delimiter[] = ", ";
     char *key, *list_str, *token, *ptr = NULL;
-    const char *table_str = __get_device_string_by_idx(AUDIO_VOLUME_DEVICE_DEFAULT);
+    const char *table_str = "volumes";
 
     /* Load volume table */
     for (vol_type_idx = 0; vol_type_idx < AUDIO_VOLUME_TYPE_MAX; vol_type_idx++) {
