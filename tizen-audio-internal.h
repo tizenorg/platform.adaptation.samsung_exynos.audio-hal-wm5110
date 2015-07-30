@@ -119,7 +119,7 @@ typedef struct device_type {
 
 #define ALSA_DEFAULT_CARD       "wm5110"
 #define VOICE_PCM_DEVICE        "hw:0,1"
-#define PLAYBACK_PCM_DEVICE     "hw:0,3"
+#define PLAYBACK_PCM_DEVICE     "hw:0,0"
 #define CAPTURE_PCM_DEVICE      "hw:0,0"
 
 #define PERIODSZ_PLAYBACK 2048
