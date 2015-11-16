@@ -169,7 +169,6 @@ typedef enum audio_route_mode{
 typedef struct audio_device_mgr {
     uint32_t active_in;
     uint32_t active_out;
-    uint32_t route_flag;
     snd_pcm_t *pcm_in;
     snd_pcm_t *pcm_out;
     pthread_mutex_t pcm_lock;
@@ -215,8 +214,6 @@ typedef struct audio_mixer_mgr {
 /* Overall */
 
 typedef struct audio_mgr {
-    void *platform_data;
-    audio_cb_interface_t cb_intf;
     audio_device_mgr_t device;
     audio_volume_mgr_t volume;
     audio_ucm_mgr_t ucm;
@@ -239,7 +236,6 @@ audio_return_t _audio_volume_deinit (audio_mgr_t *am);
 
 audio_return_t _audio_device_init (audio_mgr_t *am);
 audio_return_t _audio_device_deinit (audio_mgr_t * am);
-audio_return_t _set_route_voicecall (audio_mgr_t *am, uint32_t device_in, uint32_t device_out, uint32_t route_flag);
 audio_return_t _audio_ucm_init (audio_mgr_t *am);
 audio_return_t _audio_ucm_deinit (audio_mgr_t *am);
 void _audio_ucm_get_device_name (audio_mgr_t *am, const char *use_case, audio_direction_t direction, const char **value);
