@@ -397,13 +397,13 @@ error:
 int _voice_pcm_open (audio_mgr_t *am)
 {
     audio_return_t audio_ret = AUDIO_RET_OK;
-    int ret = 0;
+    int err, ret = 0;
 
     AUDIO_LOG_INFO("open voice pcm handles");
 
     /* Get playback voice-pcm from ucm conf. Open and set-params */
-    if ((audio_ret = audio_alsa_pcm_open((void *)am, (void **)&am->device.pcm_out, VOICE_PCM_DEVICE, AUDIO_DIRECTION_OUT, 0)) < 0) {
-        AUDIO_LOG_ERROR("snd_pcm_open for %s failed. %x", VOICE_PCM_DEVICE, audio_ret);
+    if ((err = snd_pcm_open((void **)&am->device.pcm_out, VOICE_PCM_DEVICE, AUDIO_DIRECTION_OUT, 0)) < 0) {
+        AUDIO_LOG_ERROR("snd_pcm_open for %s failed. %s", VOICE_PCM_DEVICE, snd_strerror(err));
         return AUDIO_ERR_IOCTL;
     }
     ret = __voice_pcm_set_params(am, am->device.pcm_out);
@@ -411,12 +411,11 @@ int _voice_pcm_open (audio_mgr_t *am)
     AUDIO_LOG_INFO("pcm playback device open success device(%s)", VOICE_PCM_DEVICE);
 
     /* Get capture voice-pcm from ucm conf. Open and set-params */
-    if ((audio_ret = audio_alsa_pcm_open((void *)am, (void **)&am->device.pcm_in, VOICE_PCM_DEVICE, AUDIO_DIRECTION_IN, 0)) < 0) {
-        AUDIO_LOG_ERROR("snd_pcm_open for %s failed. %x", VOICE_PCM_DEVICE, audio_ret);
+    if ((err = snd_pcm_open((void **)&am->device.pcm_in, VOICE_PCM_DEVICE, AUDIO_DIRECTION_IN, 0)) < 0) {
+        AUDIO_LOG_ERROR("snd_pcm_open for %s failed. %s", VOICE_PCM_DEVICE, snd_strerror(err));
         return AUDIO_ERR_IOCTL;
     }
     ret = __voice_pcm_set_params(am, am->device.pcm_in);
-
     AUDIO_LOG_INFO("pcm captures device open success device(%s)", VOICE_PCM_DEVICE);
 
     return ret;
@@ -427,11 +426,11 @@ int _voice_pcm_close (audio_mgr_t *am, uint32_t direction)
     AUDIO_LOG_INFO("close voice pcm handles");
 
     if (am->device.pcm_out && (direction == AUDIO_DIRECTION_OUT)) {
-        audio_alsa_pcm_close((void *)am, am->device.pcm_out);
+        audio_pcm_close((void *)am, am->device.pcm_out);
         am->device.pcm_out = NULL;
         AUDIO_LOG_INFO("voice pcm_out handle close success");
     } else if (am->device.pcm_in && (direction == AUDIO_DIRECTION_IN)) {
-        audio_alsa_pcm_close((void *)am, am->device.pcm_in);
+        audio_pcm_close((void *)am, am->device.pcm_in);
         am->device.pcm_in = NULL;
         AUDIO_LOG_INFO("voice pcm_in handle close success");
     }
