@@ -63,16 +63,14 @@ audio_return_t _audio_ucm_deinit(audio_hal_t *ah)
 
 void _audio_ucm_get_device_name(audio_hal_t *ah, const char *use_case, audio_direction_t direction, const char **value)
 {
-    char identifier[70] = {0};
+    char identifier[70] = { 0, };
 
     AUDIO_RETURN_IF_FAIL(ah);
     AUDIO_RETURN_IF_FAIL(ah->ucm.uc_mgr);
 
-    if (direction == AUDIO_DIRECTION_IN) {
-        sprintf(identifier, "CapturePCM//%s", use_case);
-    } else {
-        sprintf(identifier, "PlaybackPCM//%s", use_case);
-    }
+    snprintf(identifier, sizeof(identifier), "%sPCM//%s",
+             (direction == AUDIO_DIRECTION_IN)? "Capture" : "Playback", use_case);
+
     snd_use_case_get(ah->ucm.uc_mgr, identifier, value);
 }
 
@@ -142,6 +140,11 @@ int _audio_ucm_fill_device_info_list(audio_hal_t *ah, audio_device_info_t *devic
 static void __dump_use_case(const char *verb, const char *devices[], int dev_count, const char *modifiers[], int mod_count, char *dump)
 {
     int i, len;
+
+    if (dev_count > 0 && !devices)
+        return;
+    if (mod_count > 0 && !modifiers)
+        return;
 
     len = sprintf(dump, "Verb [ %s ] Devices [ ", verb ? verb : AUDIO_USE_CASE_VERB_INACTIVE);
     if (len > 0)
