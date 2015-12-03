@@ -143,6 +143,11 @@ static void __dump_use_case(const char *verb, const char *devices[], int dev_cou
 {
     int i, len;
 
+    if (dev_count > 0 && !devices)
+        return;
+    if (mod_count > 0 && !modifiers)
+        return;
+
     len = sprintf(dump, "Verb [ %s ] Devices [ ", verb ? verb : AUDIO_USE_CASE_VERB_INACTIVE);
     if (len > 0)
         dump += len;
