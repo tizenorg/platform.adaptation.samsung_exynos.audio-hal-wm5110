@@ -449,3 +449,52 @@ audio_return_t _audio_pcm_set_sw_params(snd_pcm_t *pcm, snd_pcm_uframes_t avail_
 error:
     return err;
 }
+
+/* ------ dump helper --------  */
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+
+dump_data_t* dump_new(int length)
+{
+    dump_data_t* dump = NULL;
+
+    if ((dump = malloc (sizeof(dump_data_t)))) {
+        memset (dump, 0, sizeof(dump_data_t));
+        if ((dump->strbuf = malloc(length))) {
+            dump->p = &dump->strbuf[0];
+            dump->left = length;
+        } else {
+            free(dump);
+            dump = NULL;
+        }
+    }
+
+    return dump;
+}
+
+void dump_add_str(dump_data_t *dump, const char *fmt, ...)
+{
+    int len;
+    va_list ap;
+
+    if (!dump)
+        return;
+
+    va_start(ap, fmt);
+    len = vsnprintf(dump->p, dump->left, fmt, ap);
+    va_end(ap);
+
+    dump->p += MAX(0, len);
+    dump->left -= MAX(0, len);
+}
+
+char* dump_get_str(dump_data_t *dump)
+{
+    return (dump)? dump->strbuf : NULL;
+}
+
+void dump_free(dump_data_t *dump)
+{
+    if (dump)
+        free(dump->strbuf);
+}
+/* ------ dump helper --------  */
