@@ -123,14 +123,11 @@ int _audio_ucm_fill_device_info_list(audio_hal_t *ah, audio_device_info_t *devic
     }
 
     /* prepare destination */
-    /*If the devices are VOICECALL LOOPBACK or FMRADIO then pulseaudio need not get the device notification*/
+    /*If the devices are VOICECALL LOOPBACK then pulseaudio need not get the device notification*/
     if (verb) {
         if (strncmp(verb, AUDIO_USE_CASE_VERB_VOICECALL, strlen(AUDIO_USE_CASE_VERB_VOICECALL)) &&
             strncmp(verb, AUDIO_USE_CASE_VERB_LOOPBACK, strlen(AUDIO_USE_CASE_VERB_LOOPBACK))) {
             __add_ucm_device_info(ah, verb, AUDIO_DIRECTION_IN, device_info_list, &device_info_count);
-            if (strncmp(verb, AUDIO_USE_CASE_VERB_FMRADIO, strlen(AUDIO_USE_CASE_VERB_FMRADIO))) {
-                __add_ucm_device_info(ah, verb, AUDIO_DIRECTION_OUT, device_info_list, &device_info_count);
-            }
         }
 
         if (curr_verb)
